@@ -1,0 +1,85 @@
+// src/App.js
+import React, { useEffect, useState } from 'react';
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:5000'); // connect to backend
+
+function App() {
+  const [doc, setDoc] = useState('');
+
+  useEffect(() => {
+    socket.on('receive-doc', (data) => {
+      setDoc(data);
+    });
+  }, []);
+
+  const handleChange = (e) => {
+    setDoc(e.target.value);
+    socket.emit('send-doc', e.target.value);
+  };
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>Real-Time Collaborative Document Editor</h2>
+      <textarea
+        value={doc}
+        onChange={handleChange}
+        rows={15}
+        cols={80}
+        style={{ fontSize: 16 }}
+      />
+    </div>
+  );
+}
+
+export default App;mkdir backend
+cd backend
+npm init -y
+npm install express mongoose socket.io cors// backend/index.js
+const express = require('express');
+const http = require('http');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const { Server } = require('socket.io');
+
+const app = express();
+app.use(cors());
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "http://localhost:3000", methods: ["GET", "POST"] }
+});
+
+// Connect MongoDB
+mongoose.connect('mongodb://localhost:27017/realtime-doc', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+});
+
+// Schema
+const DocSchema = new mongoose.Schema({ content: String });
+const Doc = mongoose.model('Document', DocSchema);
+
+// Socket.IO logic
+io.on('connection', (socket) => {
+  console.log('A user connected');
+
+  Doc.findOne().then((doc) => {
+    if (doc) {
+      socket.emit('receive-doc', doc.content);
+    }
+  });
+
+  socket.on('send-doc', async (data) => {
+    await Doc.findOneAndUpdate({}, { content: data }, { upsert: true });
+    socket.broadcast.emit('receive-doc', data);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('A user disconnected');
+  });
+});
+
+server.listen(5000, () => {
+  console.log('Server running on port 5000');
+});
